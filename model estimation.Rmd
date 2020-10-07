@@ -1,0 +1,55 @@
+---
+title: "Model Estimation (Forecasting stock prices/returns)"
+output:
+  html_document:
+    df_print: paged
+---
+In this notebook I'll be creating a loop to select an adequate model to predict the stock log returns for each ticker using the historical data for each stock.
+
+First I import all the libraries I'm going to use
+
+```{r}
+library(lattice)
+library(timeSeries)
+library(rugarch)
+library(forecast)
+```
+After loading the libraries we'll be using, we load the dataframe with adjusted close prices of the 10 stocks we'll be forecasting that I created previously in the jupyter notebook in this repository.
+
+```{r}
+setwd("~/Stori") 
+prices <- read.csv('returns.csv')
+```
+
+After reading the file I write the loop for model selection
+```{r}
+fcasts <- data.frame(matrix(NA, nrow=66, ncol=1)) # first I create an empty dataframe to store the predictions of each model
+
+for (i in 1:10) {
+  model <- auto.arima(prices[complete.cases(prices[,1+i]),c(1+i)], d=0, seasonal=FALSE)
+  order <- c(model$arma[1],model$arma[2]) # here we calculate the order of the ARMA we are going to fit later using the auto.arima function, which iterates over different lags for p and q and selects the one with the lower Akaike Information Criteria; notice the differentiating parameter of ARIMA is set to zero since we are already taking the log differences of the stock prices.
+  
+  spec=ugarchspec(
+    variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),
+    mean.model = list(armaOrder = order, include.mean = TRUE),
+    distribution.model = "sstd"
+  ) # Here we specify the GARCH model to be fitted with order (1,1) and underlying distribution of type skewed student t (to account for fat tails and skweness charteristical in financial data)
+  
+  garch <- ugarchfit(spec = spec, data = prices[complete.cases(prices[,1+i]),c(1+i)],
+                     solver='hybrid') # in this line the model is fitted jointly (the ARMA and GARCH parts) using maximum likelihood estimation
+  fcast <- ugarchforecast(garch, n.ahead = 66, n.roll
+                          = 0, out.sample = 0) # we make the forecast for the next 66 days starting on the 2020-10-01 to forecast the whole rest of the year until 2021-01-01
+  fcasts[i] <- fitted(fcast) # we append each prediction of each iteration of the loop to the empty dataframe created at the beginning
+}
+```
+
+This gives us as output a dataframe containing the 66 predictions for the 10 stocks that I forecasted with a different model selected by our algorithm for each stock.
+
+```{r}
+colnames(fcasts) <- colnames(prices)[-1]
+
+write.csv(fcasts, "predicted returns.csv")
+```
+
+Finally, we assign the tickers as column names to each stock log return prediction and write it as a csv to input in the jupyter notebook.
+This concludes the usage of this R Notebook. The rest of the analysis is continued on the first Jupyter Notebook which is also in this repository.
